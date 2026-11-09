@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "serverAuth": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": [
+        "tokenHash"
+      ]
+    }
+  }
+}
