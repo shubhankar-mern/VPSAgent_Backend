@@ -2,7 +2,8 @@ const express = require("express");
 const { db } = require("../services/firebase");
 const { requireFirebaseUser } = require("../middleware/requireFirebaseUser");
 const { listPlans, getPlanById } = require("../config/plans");
-const { isEntitled, serverLimitFor, countActiveServers } = require("../services/billing");
+const { isEntitled, countActiveServers, resolveEntitlement } = require("../services/billing");
+const { isOwnerUid } = require("../config/owner");
 const { createCheckoutSession, createPortalLink } = require("../services/dodo");
 
 const router = express.Router();
@@ -21,16 +22,17 @@ router.get("/status", async (req, res, next) => {
       db().ref(`users/${req.user.uid}/billing`).once("value"),
       db().ref(`users/${req.user.uid}/servers`).once("value"),
     ]);
-    const billing = billingSnap.val() || null;
+        const billing = billingSnap.val() || null;
     const usedServers = countActiveServers(serversSnap.val());
-    const serverLimit = serverLimitFor(billing);
+    const entitlement = resolveEntitlement(req.user.uid, billing);
     res.json({
-      billing,
+      billing: entitlement.billing,
       entitlement: {
-        active: isEntitled(billing),
-        serverLimit,
+        active: entitlement.active,
+        serverLimit: entitlement.serverLimit,
         usedServers,
-        canAddServer: usedServers < serverLimit,
+        canAddServer: usedServers < entitlement.serverLimit,
+        isOwner: entitlement.isOwner,
       },
     });
   } catch (error) { next(error); }
@@ -38,6 +40,12 @@ router.get("/status", async (req, res, next) => {
 
 router.post("/checkout", async (req, res, next) => {
   try {
+        if (isOwnerUid(req.user.uid)) {
+      return res.status(409).json({
+        error: "Owner accounts already have full access. No subscription is required.",
+        code: "OWNER_ACCOUNT",
+      });
+    }
     const plan = getPlanById(req.body?.planId);
     if (!plan) return res.status(400).json({ error: "Unknown plan." });
     if (!plan.productId) return res.status(503).json({ error: "Billing is not configured for this plan." });
@@ -65,6 +73,9 @@ router.post("/portal", async (req, res, next) => {
   try {
     const billing = (await db().ref(`users/${req.user.uid}/billing`).once("value")).val();
     if (!billing?.customerId) {
+    //       if (isOwnerUid(req.user.uid)) {
+    //   return res.status(409).json({ error: "Owner accounts are not billed.", code: "OWNER_ACCOUNT" });
+    // }
       return res.status(404).json({ error: "No billing profile yet. Subscribe to a plan first." });
     }
     const url = await createPortalLink({ customerId: billing.customerId, frontendUrl: FRONTEND_URL });

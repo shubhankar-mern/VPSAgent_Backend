@@ -4,7 +4,7 @@ const { db } = require("../services/firebase");
 const { requireFirebaseUser } = require("../middleware/requireFirebaseUser");
 const { createAgentToken, hashAgentToken } = require("../services/tokens");
 const { deriveStatus, OFFLINE_AFTER_MS } = require("../lib/status");
- const { serverLimitFor, countActiveServers } = require("../services/billing");
+const { countActiveServers, resolveEntitlement } = require("../services/billing");
 const router = express.Router();
 
 const registerSchema = z.object({
@@ -77,11 +77,11 @@ router.post("/", async (req, res, next) => {
       db().ref(`users/${uid}/billing`).once("value"),
       db().ref(`users/${uid}/servers`).once("value"),
     ]);
-    const billing = billingSnapshot.val() || null;
-    const serverLimit = serverLimitFor(billing);
+       const billing = billingSnapshot.val() || null;
+    const { active, serverLimit } = resolveEntitlement(uid, billing);
     const usedServers = countActiveServers(serversSnapshot.val());
 
-    if (usedServers >= serverLimit) {
+        if (!active || usedServers >= serverLimit) {
       return res.status(402).json({
         error:
           serverLimit === 0

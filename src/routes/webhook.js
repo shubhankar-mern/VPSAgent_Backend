@@ -3,7 +3,7 @@ const crypto = require("node:crypto");
 const { db } = require("../services/firebase");
 const { getAdmin } = require("../services/firebase");
 const { applySubscriptionEvent } = require("../services/billing");
-
+const { isOwnerUid } = require("../config/owner");
 const router = express.Router();
 const TOLERANCE_SECONDS = 5 * 60;
 
@@ -84,7 +84,10 @@ router.post("/dodo", express.raw({ type: "*/*" }), async (req, res, next) => {
       console.error(`Billing webhook ${webhookId} could not be attributed to a user.`);
       return res.json({ received: true, orphaned: true });
     }
-
+        if (isOwnerUid(uid)) {
+      await db().ref(`billingWebhooks/${webhookId}`).set(Date.now());
+      return res.json({ received: true, ignored: true, reason: "owner-account" });
+    }
     const eventTimestamp = Date.parse(event.timestamp) || Date.now();
     await applySubscriptionEvent({ uid, type, eventTimestamp, subscription });
     await db().ref(`billingWebhooks/${webhookId}`).set(eventTimestamp);

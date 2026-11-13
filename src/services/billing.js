@@ -1,5 +1,6 @@
 const { db } = require("./firebase");
 const { getPlanByProductId } = require("../config/plans");
+const { OWNER_PLAN, isOwnerUid } = require("../config/owner");
 
 const ENTITLED_STATUSES = new Set(["active", "past_due"]);
 const ACTIVATING = new Set([
@@ -33,6 +34,37 @@ function serverLimitFor(billing, now = Date.now()) {
 function countActiveServers(servers) {
   if (!servers) return 0;
   return Object.values(servers).filter((s) => s && s.status !== "revoked").length;
+}
+
+function ownerPlanView(billing) {
+  return {
+    ...(billing || {}),
+    status: "active",
+    planId: OWNER_PLAN.id,
+    planName: OWNER_PLAN.name,
+    serverLimit: OWNER_PLAN.serverLimit,
+  };
+}
+
+function resolveEntitlement(uid, billing, now = Date.now()) {
+  if (isOwnerUid(uid)) {
+    return {
+      active: true,
+      serverLimit: OWNER_PLAN.serverLimit,
+      planId: OWNER_PLAN.id,
+      planName: OWNER_PLAN.name,
+      isOwner: true,
+      billing: ownerPlanView(billing),
+    };
+  }
+  return {
+    active: isEntitled(billing, now),
+    serverLimit: serverLimitFor(billing, now),
+    planId: billing?.planId ?? null,
+    planName: billing?.planName ?? null,
+    isOwner: false,
+    billing,
+  };
 }
 
 function normalizeStatus(type, subscription) {
@@ -94,5 +126,5 @@ async function applySubscriptionEvent({ uid, type, eventTimestamp, subscription 
 }
 
 module.exports = {
-  isEntitled, serverLimitFor, countActiveServers, applySubscriptionEvent, normalizeStatus,
+  isEntitled, serverLimitFor, countActiveServers, applySubscriptionEvent, normalizeStatus,resolveEntitlement, ownerPlanView,
 };
